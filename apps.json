@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "apps": [
+    {
+      "id": "tolerance",
+      "label": "公差",
+      "path": "/tolerance/",
+      "keyVersion": "501c36e96158059a",
+      "kdf": {
+        "name": "PBKDF2",
+        "hash": "SHA-256",
+        "iterations": 600000,
+        "salt": "VDC8nkLmt8+qQeWjsjhV/w=="
+      },
+      "probe": {
+        "iv": "w3fojtpz9AAM9wOJ",
+        "data": "LzDLzYZ5wdWc2Gi5+/NWLHOpLwutf4MqON+LavyN/WKMJN0="
+      }
+    }
+  ]
+}
