@@ -1,1 +1,60 @@
-1
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow,noarchive"><meta name="referrer" content="no-referrer"><title>パスワード</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f6f4;color:#263c32;font:15px/1.65 -apple-system,BlinkMacSystemFont,'Yu Gothic',Meiryo,sans-serif;min-height:100svh;display:grid;place-items:center;padding:22px}main{width:100%;max-width:440px;background:#fff;border:1px solid #d4e0d9;padding:30px}h1{font-size:22px;margin:0 0 5px}p{margin:6px 0 18px;color:#63756a;font-size:13px}label{display:block;font-weight:600;font-size:13px;margin:15px 0 5px}input{width:100%;height:44px;border:1px solid #a9bcae;padding:8px 11px;font:16px inherit;border-radius:0}button,a.site-link{font:inherit;padding:10px 13px;border:1px solid #a9bcae;cursor:pointer;background:white;color:#24573b;min-height:43px;text-decoration:none}button.primary{background:#176747;color:#fff;border-color:#176747;width:100%;margin-top:16px;font-weight:600}button:disabled{opacity:.5;cursor:wait}button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #237853;outline-offset:3px}.password-row{display:flex;gap:6px}.password-row input{min-width:0}.password-row button{white-space:nowrap;font-size:12px}#status{font-size:13px;margin:13px 0;color:#805025;min-height:20px}.site-row{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #dce5df;padding:11px 0}.site-row span{font-size:12px;color:#65786a}.site-link{font-size:14px!important}#lock-all{width:100%;margin-top:15px;font-size:13px}.foot{font-size:11px;margin:18px 0 0}[hidden]{display:none!important}@media(max-width:420px){body{padding:14px}main{padding:23px}}
+</style></head><body><main><h1>パスワード</h1><p id="target">保護された項目を解除します。</p>
+<form id="unlock-form"><label for="password">パスワード</label><div class="password-row"><input id="password" type="password" autocomplete="current-password" required maxlength="256" autofocus><button id="show-password" type="button" aria-pressed="false">表示</button></div><button id="submit" class="primary" type="submit" disabled>解除</button></form>
+<div id="status" role="status" aria-live="polite">読み込み中…</div><div id="sites"></div><button id="lock-all" type="button" hidden>すべてロック</button><p class="foot">入力したパスワードは送信・保存しません。解除状態はこのタブで最大4時間保持します。</p></main>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id),enc=new TextEncoder(),dec=new TextDecoder();
+const PREFIX='ddisk.pass.v1.',TTL=4*60*60*1000;
+const requested=new URL(location.href).searchParams.get('app');let apps=[],busy=false;
+const bytes=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+const b64=b=>btoa(String.fromCharCode(...new Uint8Array(b)));
+function record(a){try{const r=JSON.parse(sessionStorage.getItem(PREFIX+a.id)||'null');return r&&r.keyVersion===a.keyVersion&&r.expires>Date.now()?r:null;}catch{return null;}}
+function render(){
+ $('sites').replaceChildren();
+ for(const app of apps){const row=document.createElement('div'),link=document.createElement('a'),state=document.createElement('span');row.className='site-row';link.className='site-link';link.href=app.path;link.textContent=app.label+'を開く';state.textContent=record(app)?'解除済み':'未解除';row.append(link,state);$('sites').append(row);}
+ $('lock-all').hidden=!apps.some(record);
+}
+function safeApp(a){return /^[a-z][a-z0-9-]{0,40}$/.test(a.id)&&typeof a.label==='string'&&/^\/[a-zA-Z0-9_-]+\/$/.test(a.path)&&typeof a.keyVersion==='string'&&a.kdf?.name==='PBKDF2'&&a.kdf.hash==='SHA-256'&&Number.isInteger(a.kdf.iterations)&&a.kdf.iterations>=100000&&a.kdf.iterations<=2000000&&a.probe?.iv&&a.probe?.data;}
+async function init(){try{
+ if(!crypto.subtle)throw Error('このブラウザでは暗号化機能を利用できません。HTTPSで開いてください。');
+ const res=await fetch('./apps.json',{cache:'no-store'});if(!res.ok)throw Error('設定ファイルを読み込めません。apps.jsonもアップロードしてください。');
+ const config=await res.json();if(config.schema!==1||!Array.isArray(config.apps)||!config.apps.length||config.apps.length>30||!config.apps.every(safeApp))throw Error('設定ファイルの形式が正しくありません。');
+ apps=config.apps;sessionStorage.setItem(PREFIX+'test','1');sessionStorage.removeItem(PREFIX+'test');
+ const target=apps.find(a=>a.id===requested);
+ if(requested&&!target)throw Error('指定されたサイトは登録されていません。');
+ $('target').textContent=target?target.label+'の保護された項目を解除します。':'同じパスワードのサイトをまとめて解除します。';
+ $('submit').textContent=target?'解除して戻る':'解除';$('submit').disabled=false;$('status').textContent='';render();
+ }catch(e){$('status').textContent=e.message||'読み込めませんでした。';}}
+$('show-password').addEventListener('click',()=>{const show=$('password').type==='password';$('password').type=show?'text':'password';$('show-password').textContent=show?'隠す':'表示';$('show-password').setAttribute('aria-pressed',String(show));});
+$('unlock-form').addEventListener('submit',async event=>{
+ event.preventDefault();if(busy||!apps.length)return;
+ let password=$('password').value;if(!password)return;
+ busy=true;$('submit').disabled=true;$('status').textContent='確認中…';
+ try{
+  const material=await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);password='';$('password').value='';
+  const matches=[];
+  for(const app of apps){
+   const raw=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',iterations:app.kdf.iterations,salt:bytes(app.kdf.salt)},material,256);
+   try{
+    const key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['decrypt']);
+    const check=await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes(app.probe.iv),additionalData:enc.encode('probe:'+app.id+':v1')},key,bytes(app.probe.data));
+    if(dec.decode(check)!=='unlock:'+app.id+':v1')continue;
+    matches.push({app,key:b64(raw)});
+   }catch{/* A wrong password fails AES-GCM authentication. */}
+  }
+  if(!matches.length){$('status').textContent='パスワードが違います。';$('password').focus();return;}
+  for(const {app,key} of matches)sessionStorage.setItem(PREFIX+app.id,JSON.stringify({key,keyVersion:app.keyVersion,expires:Date.now()+TTL}));
+  render();const target=apps.find(a=>a.id===requested);
+  if(target&&matches.some(m=>m.app.id===target.id)){location.replace(target.path);return;}
+  $('status').textContent=target?'一致したサイトを解除しました。指定サイトには別のパスワードが必要です。':matches.length+'件のサイトを解除しました。';
+ }catch{$('status').textContent='解除できませんでした。ブラウザの一時保存設定を確認してください。';}
+ finally{password='';$('password').value='';busy=false;$('submit').disabled=false;}
+});
+$('lock-all').addEventListener('click',()=>{for(const app of apps)sessionStorage.removeItem(PREFIX+app.id);render();$('status').textContent='すべてロックしました。';});
+window.addEventListener('pageshow',render);init();
+})();
+</script></body></html>
